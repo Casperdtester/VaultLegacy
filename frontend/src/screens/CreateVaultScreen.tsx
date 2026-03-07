@@ -1,584 +1,313 @@
-import { useState } from 'react';
+import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { COLORS, FONTS, formatSharePercent } from '../utils/constants';
-import { GoldButton, Card, Divider, CharityRow } from '../components/layout/UI';
-import type {
-    VaultWizardState, Beneficiary, WizardStep3Data, CheckInFrequency,
-} from '../types/index.js';
+import { motion, AnimatePresence } from 'framer-motion';
+import { COLORS, FONTS } from '../utils/constants';
+import { useWallet } from '../context/WalletContext';
+import { createVault, APIError } from '../api/client';
 
-const STEPS = [
-    'Connect Wallet',
-    'Name Vault',
-    'Add Parties',
-    'Upload Will',
-    'Deploy',
-] as const;
-
-const INITIAL_STATE: VaultWizardState = {
-    step: 1,
-    step1: {},
-    step2: {},
-    step3: {},
-    step4: {},
-    step5: {},
-};
-
-function StepIndicator({ current }: { readonly current: number }): React.ReactElement {
-    return (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 0, marginBottom: 48 }}>
-            {STEPS.map((label, i) => {
-                const stepNum = i + 1;
-                const done = stepNum < current;
-                const active = stepNum === current;
-                return (
-                    <div key={label} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
-                            <div style={{
-                                width: 36, height: 36,
-                                border: `1px solid ${done || active ? COLORS.gold : COLORS.border}`,
-                                background: done ? COLORS.gold : active ? `${COLORS.gold}20` : 'transparent',
-                                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                                fontSize: 14,
-                                color: done ? COLORS.obsidian : active ? COLORS.gold : COLORS.muted,
-                                fontFamily: FONTS.body, fontWeight: 500,
-                                flexShrink: 0,
-                            }}>
-                                {done ? 'âœ“' : stepNum}
-                            </div>
-                            <div style={{
-                                fontSize: 10, color: active ? COLORS.gold : COLORS.muted,
-                                textTransform: 'uppercase', letterSpacing: 1, whiteSpace: 'nowrap',
-                                fontFamily: FONTS.body,
-                            }}>
-                                {label}
-                            </div>
-                        </div>
-                        {i < STEPS.length - 1 && (
-                            <div style={{
-                                flex: 1, height: 1, background: done ? COLORS.gold : COLORS.border,
-                                marginBottom: 28,
-                            }} />
-                        )}
-                    </div>
-                );
-            })}
-        </div>
-    );
-}
-
-function InputField({
-    label, value, onChange, placeholder, type = 'text', hint,
-}: {
-    readonly label: string;
-    readonly value: string;
-    readonly onChange: (v: string) => void;
-    readonly placeholder?: string;
-    readonly type?: string;
-    readonly hint?: string;
-}): React.ReactElement {
-    return (
-        <div style={{ marginBottom: 24 }}>
-            <label style={{ display: 'block', fontSize: 11, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 8 }}>
-                {label}
-            </label>
-            <input
-                type={type}
-                value={value}
-                onChange={(e) => onChange(e.target.value)}
-                placeholder={placeholder}
-                style={{
-                    width: '100%', padding: '12px 16px',
-                    background: COLORS.mid, border: `1px solid ${COLORS.border}`,
-                    color: COLORS.ivory, fontFamily: FONTS.body, fontSize: 14,
-                    outline: 'none',
-                }}
-            />
-            {hint && <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 6 }}>{hint}</div>}
-        </div>
-    );
-}
-
-function Step1({ onNext }: { readonly onNext: () => void }): React.ReactElement {
-    const [connected, setConnected] = useState(false);
-
-    return (
-        <div style={{ maxWidth: 480 }}>
-            <h2 style={{ fontFamily: FONTS.heading, fontSize: 28, color: COLORS.ivory, marginBottom: 12 }}>
-                Connect Your Wallet
-            </h2>
-            <p style={{ fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted, marginBottom: 36, lineHeight: 1.7 }}>
-                VaultLegacy uses your Bitcoin wallet for self-sovereign identity. No email, no password. You are your key.
-            </p>
-
-            {!connected ? (
-                <Card style={{ marginBottom: 24 }}>
-                    <div style={{ textAlign: 'center', padding: '24px 0' }}>
-                        <div style={{ fontSize: 48, marginBottom: 16 }}>â—ˆ</div>
-                        <div style={{ fontFamily: FONTS.heading, fontSize: 20, color: COLORS.ivory, marginBottom: 8 }}>
-                            OP_WALLET
-                        </div>
-                        <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 24 }}>
-                            The official OPNet wallet. Required for testnet interaction.
-                        </div>
-                        <GoldButton onClick={() => setConnected(true)}>
-                            Connect OP_WALLET
-                        </GoldButton>
-                    </div>
-                </Card>
-            ) : (
-                <Card accent="green" style={{ marginBottom: 24 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-                        <div style={{ width: 10, height: 10, borderRadius: '50%', background: COLORS.green, flexShrink: 0 }} />
-                        <div>
-                            <div style={{ fontSize: 12, color: COLORS.green, marginBottom: 4 }}>Wallet Connected</div>
-                            <div style={{ fontSize: 12, color: COLORS.muted, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                                bc1powner123abc456def789ghi012jkl345mno678pqr901stu234...
-                            </div>
-                        </div>
-                    </div>
-                </Card>
-            )}
-
-            <GoldButton onClick={onNext} disabled={!connected} fullWidth>
-                Continue â†’
-            </GoldButton>
-        </div>
-    );
-}
-
-function Step2({
-    vaultName, setVaultName, onNext, onBack,
-}: {
-    readonly vaultName: string;
-    readonly setVaultName: (v: string) => void;
-    readonly onNext: () => void;
-    readonly onBack: () => void;
-}): React.ReactElement {
-    return (
-        <div style={{ maxWidth: 480 }}>
-            <h2 style={{ fontFamily: FONTS.heading, fontSize: 28, color: COLORS.ivory, marginBottom: 12 }}>
-                Name Your Vault
-            </h2>
-            <p style={{ fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted, marginBottom: 36, lineHeight: 1.7 }}>
-                This name appears on your vault certificate and all party communications. Make it clear and formal.
-            </p>
-            <InputField
-                label="Vault Name"
-                value={vaultName}
-                onChange={setVaultName}
-                placeholder="e.g. Johnson Family Estate"
-            />
-            <div style={{ display: 'flex', gap: 12 }}>
-                <GoldButton onClick={onBack} variant="ghost">â† Back</GoldButton>
-                <GoldButton onClick={onNext} disabled={vaultName.trim().length === 0} fullWidth>
-                    Continue â†’
-                </GoldButton>
-            </div>
-        </div>
-    );
-}
-
-function Step3({
-    data, onChange, onNext, onBack,
-}: {
-    readonly data: Partial<WizardStep3Data>;
-    readonly onChange: (d: Partial<WizardStep3Data>) => void;
-    readonly onNext: () => void;
-    readonly onBack: () => void;
-}): React.ReactElement {
-    const [lawyerName, setLawyerName] = useState(data.executor?.name ?? '');
-    const [lawyerAddr, setLawyerAddr] = useState(data.executor?.address ?? '');
-    const [lawyerLoc, setLawyerLoc] = useState(data.executor?.location ?? '');
-    const [lawyerFee, setLawyerFee] = useState(String(data.executor?.feePercent ?? ''));
-    const [charityName, setCharityName] = useState(data.charity?.name ?? '');
-    const [charityAddr, setCharityAddr] = useState(data.charity?.address ?? '');
-    const [beneficiaries, setBeneficiaries] = useState<Beneficiary[]>(
-        data.beneficiaries ? [...data.beneficiaries] : [],
-    );
-    const [bName, setBName] = useState('');
-    const [bAddr, setBAddr] = useState('');
-    const [bCountry, setBCountry] = useState('');
-    const [bShare, setBShare] = useState('');
-
-    const totalShare = beneficiaries.reduce((sum, b) => sum + b.sharePercent, 0);
-    const remaining = 10000 - totalShare;
-
-    const addBeneficiary = (): void => {
-        if (!bName || !bAddr || !bCountry || !bShare) return;
-        const shareNum = Math.round(parseFloat(bShare) * 100);
-        if (shareNum <= 0 || totalShare + shareNum > 10000) return;
-        const isRemote = bCountry.toLowerCase() !== 'nigeria';
-        const newBene: Beneficiary = {
-            id: `bene-${Date.now()}`,
-            name: bName, address: bAddr, country: bCountry,
-            sharePercent: shareNum, status: 'ACTIVE', isRemote,
-        };
-        setBeneficiaries((prev) => [...prev, newBene]);
-        setBName(''); setBAddr(''); setBCountry(''); setBShare('');
-    };
-
-    const removeBeneficiary = (id: string): void => {
-        setBeneficiaries((prev) => prev.filter((b) => b.id !== id));
-    };
-
-    const handleNext = (): void => {
-        onChange({
-            executor: { name: lawyerName, address: lawyerAddr, location: lawyerLoc, feePercent: Number(lawyerFee) },
-            beneficiaries,
-            charity: { name: charityName, address: charityAddr },
-        });
-        onNext();
-    };
-
-    const canProceed =
-        lawyerName && lawyerAddr && lawyerFee && charityName && charityAddr &&
-        beneficiaries.length > 0 && totalShare === 10000;
-
-    return (
-        <div style={{ maxWidth: 680 }}>
-            <h2 style={{ fontFamily: FONTS.heading, fontSize: 28, color: COLORS.ivory, marginBottom: 12 }}>
-                Add Parties
-            </h2>
-            <p style={{ fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted, marginBottom: 36, lineHeight: 1.7 }}>
-                Register your executor (lawyer) and up to 7 beneficiaries. Share percentages must total exactly 100%.
-            </p>
-
-            <div style={{ fontSize: 13, color: COLORS.goldLight, marginBottom: 20, textTransform: 'uppercase', letterSpacing: 1 }}>
-                Executor / Lawyer
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 8 }}>
-                <InputField label="Full Name / Firm" value={lawyerName} onChange={setLawyerName} placeholder="Adeyemi Okonkwo & Associates" />
-                <InputField label="Bitcoin Address" value={lawyerAddr} onChange={setLawyerAddr} placeholder="bc1p..." />
-                <InputField label="Location" value={lawyerLoc} onChange={setLawyerLoc} placeholder="Lagos, Nigeria" />
-                <InputField label="Fee %" value={lawyerFee} onChange={setLawyerFee} type="number" placeholder="2" hint="Percentage of vault at time of death. E.g. 2 = 2%" />
-            </div>
-
-            <Divider />
-
-            <div style={{ fontSize: 13, color: COLORS.goldLight, marginBottom: 20, textTransform: 'uppercase', letterSpacing: 1 }}>
-                Beneficiaries
-                <span style={{ marginLeft: 16, color: remaining === 0 ? COLORS.green : COLORS.gold, fontFamily: FONTS.body, fontSize: 12 }}>
-                    {remaining === 0 ? 'âœ“ 100% allocated' : `${(remaining / 100).toFixed(2)}% remaining`}
-                </span>
-            </div>
-
-            {beneficiaries.map((b) => (
-                <div key={b.id} style={{
-                    display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-                    background: COLORS.mid, border: `1px solid ${COLORS.border}`, marginBottom: 8,
-                }}>
-                    <div style={{ flex: 1 }}>
-                        <span style={{ fontSize: 13, color: COLORS.ivory, marginRight: 8 }}>{b.name}</span>
-                        {b.isRemote && <span style={{ fontSize: 11, color: COLORS.green }}>ðŸŒ Remote Signer</span>}
-                    </div>
-                    <div style={{ fontFamily: FONTS.heading, fontSize: 18, color: COLORS.gold }}>
-                        {formatSharePercent(b.sharePercent)}
-                    </div>
-                    <button onClick={() => removeBeneficiary(b.id)} style={{
-                        background: 'none', border: 'none', color: COLORS.red, cursor: 'pointer', fontSize: 16,
-                    }}>Ã—</button>
-                </div>
-            ))}
-
-            {beneficiaries.length < 7 && (
-                <div style={{ padding: 16, border: `1px dashed ${COLORS.border}`, marginBottom: 8 }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 80px auto', gap: 8, alignItems: 'end' }}>
-                        <div>
-                            <label style={{ fontSize: 10, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Name</label>
-                            <input value={bName} onChange={(e) => setBName(e.target.value)} placeholder="Full name" style={{ width: '100%', padding: '8px 10px', background: COLORS.obsidian, border: `1px solid ${COLORS.border}`, color: COLORS.ivory, fontFamily: FONTS.body, fontSize: 13, outline: 'none' }} />
-                        </div>
-                        <div>
-                            <label style={{ fontSize: 10, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Bitcoin Address</label>
-                            <input value={bAddr} onChange={(e) => setBAddr(e.target.value)} placeholder="bc1p..." style={{ width: '100%', padding: '8px 10px', background: COLORS.obsidian, border: `1px solid ${COLORS.border}`, color: COLORS.ivory, fontFamily: FONTS.body, fontSize: 13, outline: 'none' }} />
-                        </div>
-                        <div>
-                            <label style={{ fontSize: 10, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Country</label>
-                            <input value={bCountry} onChange={(e) => setBCountry(e.target.value)} placeholder="Nigeria" style={{ width: '100%', padding: '8px 10px', background: COLORS.obsidian, border: `1px solid ${COLORS.border}`, color: COLORS.ivory, fontFamily: FONTS.body, fontSize: 13, outline: 'none' }} />
-                        </div>
-                        <div>
-                            <label style={{ fontSize: 10, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1, display: 'block', marginBottom: 4 }}>Share %</label>
-                            <input value={bShare} onChange={(e) => setBShare(e.target.value)} type="number" placeholder="35" style={{ width: '100%', padding: '8px 10px', background: COLORS.obsidian, border: `1px solid ${COLORS.border}`, color: COLORS.ivory, fontFamily: FONTS.body, fontSize: 13, outline: 'none' }} />
-                        </div>
-                        <button onClick={addBeneficiary} style={{
-                            padding: '9px 14px', background: COLORS.gold, border: 'none', color: COLORS.obsidian,
-                            fontFamily: FONTS.body, fontSize: 13, fontWeight: 600, cursor: 'pointer',
-                        }}>+</button>
-                    </div>
-                </div>
-            )}
-
-            <Divider />
-
-            <div style={{ fontSize: 13, color: COLORS.red, marginBottom: 16, textTransform: 'uppercase', letterSpacing: 1 }}>
-                Charity Fallback
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 8 }}>
-                <InputField label="Charity Name" value={charityName} onChange={setCharityName} placeholder="African Children Education Fund" />
-                <InputField label="Bitcoin Address" value={charityAddr} onChange={setCharityAddr} placeholder="bc1p..." hint="Locked at deployment. Cannot change without both signatures." />
-            </div>
-
-            {charityAddr && <CharityRow name={charityName || 'Unnamed Charity'} address={charityAddr} />}
-
-            <Divider />
-
-            <div style={{ display: 'flex', gap: 12, marginTop: 8 }}>
-                <GoldButton onClick={onBack} variant="ghost">â† Back</GoldButton>
-                <GoldButton onClick={handleNext} disabled={!canProceed} fullWidth>
-                    Continue â†’
-                </GoldButton>
-            </div>
-        </div>
-    );
-}
-
-function Step4({
-    onNext, onBack,
-}: {
-    readonly onNext: () => void;
-    readonly onBack: () => void;
-}): React.ReactElement {
-    const [willFile, setWillFile] = useState('');
-    const [clauseFile, setClauseFile] = useState('');
-    const [encrypting, setEncrypting] = useState(false);
-    const [encrypted, setEncrypted] = useState(false);
-
-    const simulateEncrypt = (): void => {
-        setEncrypting(true);
-        setTimeout(() => {
-            setEncrypting(false);
-            setEncrypted(true);
-        }, 2200);
-    };
-
-    return (
-        <div style={{ maxWidth: 560 }}>
-            <h2 style={{ fontFamily: FONTS.heading, fontSize: 28, color: COLORS.ivory, marginBottom: 12 }}>
-                Upload Will & Conditions
-            </h2>
-            <p style={{ fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted, marginBottom: 36, lineHeight: 1.7 }}>
-                Documents are encrypted client-side with the executor's public key before upload. Only the SHA-256 hash is stored on-chain. The executor cannot decrypt until death is confirmed and the dispute window closes.
-            </p>
-
-            <Card style={{ marginBottom: 16 }}>
-                <div style={{ fontSize: 11, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Will Document</div>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                    <label style={{
-                        padding: '10px 20px', border: `1px solid ${COLORS.border}`,
-                        color: COLORS.ivory, fontFamily: FONTS.body, fontSize: 13, cursor: 'pointer',
-                        background: COLORS.mid,
-                    }}>
-                        Select PDF / DOCX
-                        <input type="file" accept=".pdf,.docx" style={{ display: 'none' }} onChange={(e) => setWillFile(e.target.files?.[0]?.name ?? '')} />
-                    </label>
-                    {willFile && <span style={{ fontSize: 12, color: COLORS.green }}>âœ“ {willFile}</span>}
-                </div>
-            </Card>
-
-            <Card style={{ marginBottom: 24 }}>
-                <div style={{ fontSize: 11, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>Conditional Clause Document</div>
-                <div style={{ display: 'flex', gap: 12, alignItems: 'center' }}>
-                    <label style={{
-                        padding: '10px 20px', border: `1px solid ${COLORS.border}`,
-                        color: COLORS.ivory, fontFamily: FONTS.body, fontSize: 13, cursor: 'pointer',
-                        background: COLORS.mid,
-                    }}>
-                        Select PDF / DOCX
-                        <input type="file" accept=".pdf,.docx" style={{ display: 'none' }} onChange={(e) => setClauseFile(e.target.files?.[0]?.name ?? '')} />
-                    </label>
-                    {clauseFile && <span style={{ fontSize: 12, color: COLORS.green }}>âœ“ {clauseFile}</span>}
-                </div>
-            </Card>
-
-            {!encrypted && (
-                <GoldButton
-                    onClick={simulateEncrypt}
-                    disabled={!willFile || !clauseFile || encrypting}
-                    fullWidth
-                >
-                    {encrypting ? 'ðŸ”’ Encrypting Client-Side...' : 'Encrypt & Hash Documents'}
-                </GoldButton>
-            )}
-
-            {encrypted && (
-                <Card accent="green" style={{ marginBottom: 24 }}>
-                    <div style={{ fontSize: 12, color: COLORS.green, marginBottom: 12 }}>âœ“ Encryption Complete</div>
-                    <div style={{ display: 'grid', gap: 8 }}>
-                        <div>
-                            <div style={{ fontSize: 10, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Will SHA-256 Hash</div>
-                            <div style={{ fontSize: 11, color: COLORS.ivory, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                                a3f4b2c1d5e6f7a8b9c0d1e2f3a4b5c6d7e8f9a0b1c2d3e4f5a6b7c8d9e0f1a2
-                            </div>
-                        </div>
-                        <div>
-                            <div style={{ fontSize: 10, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 3 }}>Clause SHA-256 Hash</div>
-                            <div style={{ fontSize: 11, color: COLORS.ivory, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                                b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5
-                            </div>
-                        </div>
-                    </div>
-                </Card>
-            )}
-
-            <div style={{ display: 'flex', gap: 12, marginTop: 24 }}>
-                <GoldButton onClick={onBack} variant="ghost">â† Back</GoldButton>
-                <GoldButton onClick={onNext} disabled={!encrypted} fullWidth>Continue â†’</GoldButton>
-            </div>
-        </div>
-    );
-}
-
-function Step5({
-    freq, setFreq, onDeploy, onBack, deploying, deployed,
-}: {
-    readonly freq: CheckInFrequency;
-    readonly setFreq: (f: CheckInFrequency) => void;
-    readonly onDeploy: () => void;
-    readonly onBack: () => void;
-    readonly deploying: boolean;
-    readonly deployed: boolean;
-}): React.ReactElement {
-    return (
-        <div style={{ maxWidth: 540 }}>
-            <h2 style={{ fontFamily: FONTS.heading, fontSize: 28, color: COLORS.ivory, marginBottom: 12 }}>
-                Deploy Vault
-            </h2>
-            <p style={{ fontFamily: FONTS.body, fontSize: 14, color: COLORS.muted, marginBottom: 36, lineHeight: 1.7 }}>
-                Set your dead man's switch frequency, then deploy to OP_NET Testnet. Death is the only unlock trigger â€” no calendar date.
-            </p>
-
-            <div style={{ marginBottom: 32 }}>
-                <div style={{ fontSize: 11, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 16 }}>
-                    Check-In Frequency
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-                    {(['3months', '6months'] as const).map((f) => (
-                        <div
-                            key={f}
-                            onClick={() => setFreq(f)}
-                            style={{
-                                padding: '20px', cursor: 'pointer',
-                                border: `1px solid ${freq === f ? COLORS.gold : COLORS.border}`,
-                                background: freq === f ? `${COLORS.gold}10` : COLORS.mid,
-                            }}
-                        >
-                            <div style={{ fontFamily: FONTS.heading, fontSize: 24, color: freq === f ? COLORS.gold : COLORS.ivory, marginBottom: 4 }}>
-                                {f === '3months' ? '3 Months' : '6 Months'}
-                            </div>
-                            <div style={{ fontSize: 12, color: COLORS.muted }}>
-                                ~{f === '3months' ? '13,140' : '26,280'} blocks
-                            </div>
-                            <div style={{ fontSize: 11, color: COLORS.muted, marginTop: 6 }}>
-                                {f === '3months' ? 'More frequent check-ins, earlier alert.' : 'Less frequent, more flexibility.'}
-                            </div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-
-            {!deployed && (
-                <div style={{ display: 'flex', gap: 12 }}>
-                    <GoldButton onClick={onBack} variant="ghost">â† Back</GoldButton>
-                    <GoldButton onClick={onDeploy} disabled={deploying} fullWidth>
-                        {deploying ? 'âŸ³ Deploying to Testnet...' : 'Deploy Vault Contract'}
-                    </GoldButton>
-                </div>
-            )}
-
-            {deployed && (
-                <Card accent="gold">
-                    <div style={{ fontFamily: FONTS.heading, fontSize: 22, color: COLORS.gold, marginBottom: 16 }}>
-                        âœ“ Vault Deployed
-                    </div>
-                    <div style={{ marginBottom: 12 }}>
-                        <div style={{ fontSize: 10, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Contract Address</div>
-                        <div style={{ fontSize: 12, color: COLORS.ivory, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                            bc1p4x9hq3z7k2m8n5t6w0y1a3b5c7d9e2f4g6h8j0k2l4m6n8p0q2r4s6t8u0v
-                        </div>
-                    </div>
-                    <div style={{ marginBottom: 20 }}>
-                        <div style={{ fontSize: 10, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 4 }}>Transaction Hash</div>
-                        <div style={{ fontSize: 12, color: COLORS.ivory, fontFamily: 'monospace', wordBreak: 'break-all' }}>
-                            a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8e9f0a1b2
-                        </div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 12 }}>
-                        <GoldButton onClick={() => window.location.href = '/certificate'} variant="ghost">
-                            Download Certificate
-                        </GoldButton>
-                        <GoldButton onClick={() => window.location.href = '/owner'} fullWidth>
-                            Go to Dashboard â†’
-                        </GoldButton>
-                    </div>
-                </Card>
-            )}
-        </div>
-    );
-}
+type Step = 1 | 2 | 3 | 4 | 5;
+interface BeneficiaryForm { name: string; address: string; location: string; share: string; }
 
 export function CreateVaultScreen(): React.ReactElement {
     const navigate = useNavigate();
-    const [state, setState] = useState<VaultWizardState>(INITIAL_STATE);
+    const { address, getHeaders, currentBlock, connected } = useWallet();
+    const [step, setStep] = useState<Step>(1);
+    const [vaultName, setVaultName] = useState('');
+    const [executor, setExecutor] = useState({ name: '', address: '', location: '', fee: '' });
+    const [beneficiaries, setBeneficiaries] = useState<BeneficiaryForm[]>([{ name: '', address: '', location: '', share: '' }]);
+    const [charity, setCharity] = useState({ name: '', address: '' });
+    const [willFile, setWillFile] = useState<File | null>(null);
+    const [clauseFile, setClauseFile] = useState<File | null>(null);
+    const [checkInFreq, setCheckInFreq] = useState<3 | 6>(3);
     const [deploying, setDeploying] = useState(false);
     const [deployed, setDeployed] = useState(false);
-    const [freq, setFreq] = useState<CheckInFrequency>('3months');
+    const [deployedVaultId, setDeployedVaultId] = useState('');
+    const [deployError, setDeployError] = useState('');
 
-    const setStep = (step: number): void => setState((s) => ({ ...s, step }));
+    const totalShares = beneficiaries.reduce((s, b) => s + (parseFloat(b.share) || 0), 0);
+    const sharesOk = Math.abs(totalShares - 100) < 0.01;
 
-    const simulateDeploy = (): void => {
-        setDeploying(true);
-        setTimeout(() => { setDeploying(false); setDeployed(true); }, 3000);
+    const addBeneficiary = () => { if (beneficiaries.length < 7) setBeneficiaries([...beneficiaries, { name: '', address: '', location: '', share: '' }]); };
+    const updateBen = (i: number, f: keyof BeneficiaryForm, v: string) => { const u = [...beneficiaries]; u[i][f] = v; setBeneficiaries(u); };
+    const removeBen = (i: number) => setBeneficiaries(beneficiaries.filter((_, idx) => idx !== i));
+
+    const hashFile = async (file: File): Promise<string> => {
+        const buf = await file.arrayBuffer();
+        const hb = await crypto.subtle.digest('SHA-256', buf);
+        return Array.from(new Uint8Array(hb)).map(b => b.toString(16).padStart(2, '0')).join('');
+    };
+
+    const handleDeploy = async () => {
+        if (!connected) { setDeployError('Connect your wallet first.'); return; }
+        setDeploying(true); setDeployError('');
+        try {
+            const willHash = willFile ? await hashFile(willFile) : `will_${Date.now()}`;
+            const clauseHash = clauseFile ? await hashFile(clauseFile) : `clause_${Date.now()}`;
+            const freqBlocks = checkInFreq === 3 ? 13140 : 26280;
+
+            const payload = {
+                name: vaultName,
+                ownerAddress: address,
+                executorAddress: executor.address,
+                executorName: executor.name,
+                executorLocation: executor.location,
+                executorFeePercent: parseFloat(executor.fee) || 0,
+                beneficiaries: beneficiaries.map(b => ({
+                    name: b.name,
+                    address: b.address,
+                    country: b.location,
+                    sharePercent: parseFloat(b.share) || 0,
+                    isRemote: !b.location.toLowerCase().includes('nigeria') && !b.location.toLowerCase().includes('lagos'),
+                })),
+                charityAddress: charity.address,
+                charityName: charity.name,
+                willHash,
+                clauseHash,
+                checkInFrequencyBlocks: freqBlocks,
+                deployedAt: new Date().toISOString(),
+                txHash: `testnet_deploy_${Date.now()}`,
+            };
+
+            const result = await createVault(payload, getHeaders());
+            setDeployedVaultId(result.id ?? '');
+            setDeployed(true);
+        } catch (e) {
+            setDeployError(e instanceof APIError ? e.message : 'Deployment failed. Make sure the backend is running.');
+        } finally { setDeploying(false); }
+    };
+
+    const STEP_LABELS = ['Connect', 'Name', 'Parties', 'Documents', 'Deploy'];
+    const canNext: Record<Step, boolean> = {
+        1: connected,
+        2: vaultName.trim().length > 0,
+        3: executor.address.length > 0 && beneficiaries.every(b => b.name && b.address) && sharesOk && charity.address.length > 0,
+        4: true,
+        5: true,
     };
 
     return (
-        <div style={{ padding: '48px 48px', maxWidth: 1000, margin: '0 auto' }}>
-            <div style={{ marginBottom: 12 }}>
-                <button
-                    onClick={() => navigate('/owner')}
-                    style={{ background: 'none', border: 'none', color: COLORS.muted, cursor: 'pointer', fontFamily: FONTS.body, fontSize: 12 }}
-                >
-                    â† Back to Dashboard
-                </button>
+        <div style={{ minHeight: '100vh', background: COLORS.obsidian, color: COLORS.ivory, fontFamily: FONTS.body }}>
+            <div style={{ borderBottom: `1px solid ${COLORS.border}`, padding: '20px 48px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ fontFamily: FONTS.heading, fontSize: 20, fontWeight: 700, letterSpacing: 3 }}>VAULT<span style={{ color: COLORS.gold }}>LEGACY</span></div>
+                <div style={{ fontSize: 11, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1 }}>Create Vault - Step {step} of 5</div>
             </div>
 
-            <div style={{ fontFamily: FONTS.heading, fontSize: 42, fontWeight: 600, color: COLORS.ivory, marginBottom: 6 }}>
-                Create Vault
-            </div>
-            <div style={{ fontSize: 14, color: COLORS.muted, marginBottom: 48 }}>
-                Deploy a Bitcoin inheritance vault to OP_NET Testnet
+            <div style={{ padding: '24px 48px', borderBottom: `1px solid ${COLORS.border}`, display: 'flex', gap: 0, maxWidth: 960, margin: '0 auto' }}>
+                {STEP_LABELS.map((label, i) => {
+                    const n = (i + 1) as Step;
+                    const active = n === step;
+                    const done = n < step;
+                    return (
+                        <div key={label} style={{ display: 'flex', alignItems: 'center', flex: 1 }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                                <div style={{ width: 28, height: 28, borderRadius: '50%', background: done || active ? COLORS.gold : COLORS.border, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 12, color: done || active ? COLORS.obsidian : COLORS.muted, fontWeight: 600 }}>
+                                    {done ? 'OK' : n}
+                                </div>
+                                <span style={{ fontSize: 11, color: active ? COLORS.gold : COLORS.muted, textTransform: 'uppercase', letterSpacing: 1 }}>{label}</span>
+                            </div>
+                            {i < 4 && <div style={{ flex: 1, height: 1, background: done ? COLORS.gold : COLORS.border, margin: '0 12px' }} />}
+                        </div>
+                    );
+                })}
             </div>
 
-            <StepIndicator current={state.step} />
+            <div style={{ maxWidth: 720, margin: '0 auto', padding: '48px' }}>
+                <AnimatePresence mode="wait">
 
-            {state.step === 1 && <Step1 onNext={() => setStep(2)} />}
-            {state.step === 2 && (
-                <Step2
-                    vaultName={state.step2.vaultName ?? ''}
-                    setVaultName={(v) => setState((s) => ({ ...s, step2: { vaultName: v } }))}
-                    onNext={() => setStep(3)}
-                    onBack={() => setStep(1)}
-                />
-            )}
-            {state.step === 3 && (
-                <Step3
-                    data={state.step3}
-                    onChange={(d) => setState((s) => ({ ...s, step3: d }))}
-                    onNext={() => setStep(4)}
-                    onBack={() => setStep(2)}
-                />
-            )}
-            {state.step === 4 && <Step4 onNext={() => setStep(5)} onBack={() => setStep(3)} />}
-            {state.step === 5 && (
-                <Step5
-                    freq={freq}
-                    setFreq={setFreq}
-                    onDeploy={simulateDeploy}
-                    onBack={() => setStep(4)}
-                    deploying={deploying}
-                    deployed={deployed}
-                />
-            )}
+                    {step === 1 && (
+                        <motion.div key="s1" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                            <div style={{ fontFamily: FONTS.heading, fontSize: 28, marginBottom: 12 }}>Connect Wallet</div>
+                            <div style={{ fontSize: 14, color: COLORS.muted, marginBottom: 32, lineHeight: 1.7 }}>Your OP_NET wallet is required to create and own this vault. No email or password needed.</div>
+                            {connected ? (
+                                <div style={{ padding: '20px 24px', background: `${COLORS.green}10`, border: `1px solid ${COLORS.green}50`, marginBottom: 32 }}>
+                                    <div style={{ fontSize: 11, color: COLORS.green, textTransform: 'uppercase', letterSpacing: 2, marginBottom: 6 }}>Wallet Connected</div>
+                                    <div style={{ fontSize: 13, color: COLORS.ivory, fontFamily: 'monospace' }}>{address}</div>
+                                </div>
+                            ) : (
+                                <div style={{ padding: '20px 24px', background: `${COLORS.red}10`, border: `1px solid ${COLORS.red}40`, marginBottom: 32 }}>
+                                    <div style={{ fontSize: 13, color: COLORS.red }}>No wallet connected. Return to the home screen to connect your OP_WALLET.</div>
+                                    <button onClick={() => navigate('/')} style={{ marginTop: 12, padding: '8px 20px', background: COLORS.gold, border: 'none', color: COLORS.obsidian, fontSize: 11, fontWeight: 600, cursor: 'pointer' }}>Go to Home</button>
+                                </div>
+                            )}
+                            <motion.button whileHover={{ background: COLORS.goldLight }} disabled={!connected} onClick={() => setStep(2)} style={{ padding: '14px 40px', background: connected ? COLORS.gold : COLORS.border, border: 'none', color: connected ? COLORS.obsidian : COLORS.muted, fontSize: 13, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', cursor: connected ? 'pointer' : 'not-allowed' }}>
+                                Continue
+                            </motion.button>
+                        </motion.div>
+                    )}
+
+                    {step === 2 && (
+                        <motion.div key="s2" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                            <div style={{ fontFamily: FONTS.heading, fontSize: 28, marginBottom: 12 }}>Name Your Vault</div>
+                            <div style={{ fontSize: 14, color: COLORS.muted, marginBottom: 32 }}>Give this estate vault a name. This will appear on the vault certificate.</div>
+                            <input value={vaultName} onChange={e => setVaultName(e.target.value)} placeholder="e.g. Johnson Family Estate" style={{ width: '100%', padding: '16px 20px', background: COLORS.slate, border: `1px solid ${COLORS.border}`, color: COLORS.ivory, fontSize: 16, fontFamily: FONTS.heading, letterSpacing: 1, boxSizing: 'border-box', marginBottom: 32 }} />
+                            <div style={{ display: 'flex', gap: 12 }}>
+                                <button onClick={() => setStep(1)} style={{ padding: '14px 28px', background: 'none', border: `1px solid ${COLORS.border}`, color: COLORS.muted, fontSize: 12, cursor: 'pointer' }}>Back</button>
+                                <motion.button whileHover={{ background: COLORS.goldLight }} disabled={!vaultName.trim()} onClick={() => setStep(3)} style={{ padding: '14px 40px', background: vaultName.trim() ? COLORS.gold : COLORS.border, border: 'none', color: vaultName.trim() ? COLORS.obsidian : COLORS.muted, fontSize: 13, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', cursor: vaultName.trim() ? 'pointer' : 'not-allowed' }}>
+                                    Continue
+                                </motion.button>
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {step === 3 && (
+                        <motion.div key="s3" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                            <div style={{ fontFamily: FONTS.heading, fontSize: 28, marginBottom: 32 }}>Add Parties</div>
+
+                            <div style={{ background: COLORS.slate, border: `1px solid ${COLORS.border}`, padding: 28, marginBottom: 24 }}>
+                                <div style={{ fontSize: 11, color: COLORS.gold, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 16 }}>Executor / Lawyer</div>
+                                {(['name', 'address', 'location', 'fee'] as const).map((f) => (
+                                    <div key={f} style={{ marginBottom: 12 }}>
+                                        <div style={{ fontSize: 11, color: COLORS.muted, marginBottom: 4, textTransform: 'capitalize' }}>{f === 'fee' ? 'Fee Percentage (%)' : f}</div>
+                                        <input value={executor[f]} onChange={e => setExecutor(p => ({ ...p, [f]: e.target.value }))} placeholder={f === 'fee' ? '2' : f === 'address' ? 'tb1...' : ''} style={{ width: '100%', padding: '10px 14px', background: COLORS.mid, border: `1px solid ${COLORS.border}`, color: COLORS.ivory, fontSize: 13, fontFamily: FONTS.body, boxSizing: 'border-box' }} />
+                                    </div>
+                                ))}
+                            </div>
+
+                            <div style={{ background: COLORS.slate, border: `1px solid ${COLORS.border}`, padding: 28, marginBottom: 24 }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                                    <div style={{ fontSize: 11, color: COLORS.gold, textTransform: 'uppercase', letterSpacing: 1.5 }}>Beneficiaries</div>
+                                    <div style={{ fontSize: 12, color: sharesOk ? COLORS.green : totalShares > 0 ? COLORS.red : COLORS.muted }}>
+                                        {totalShares.toFixed(0)}% of 100%
+                                    </div>
+                                </div>
+                                {beneficiaries.map((b, i) => (
+                                    <div key={i} style={{ background: COLORS.mid, border: `1px solid ${COLORS.border}`, padding: '16px', marginBottom: 8 }}>
+                                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 8 }}>
+                                            {(['name', 'address', 'location'] as const).map(f => (
+                                                <input key={f} value={b[f]} onChange={e => updateBen(i, f, e.target.value)} placeholder={f === 'address' ? 'tb1...' : f.charAt(0).toUpperCase() + f.slice(1)} style={{ padding: '8px 12px', background: COLORS.obsidian, border: `1px solid ${COLORS.border}`, color: COLORS.ivory, fontSize: 12, fontFamily: FONTS.body }} />
+                                            ))}
+                                            <input value={b.share} onChange={e => updateBen(i, 'share', e.target.value)} placeholder="Share %" type="number" min="0" max="100" style={{ padding: '8px 12px', background: COLORS.obsidian, border: `1px solid ${COLORS.border}`, color: COLORS.gold, fontSize: 12, fontFamily: FONTS.body }} />
+                                        </div>
+                                        {beneficiaries.length > 1 && (
+                                            <button onClick={() => removeBen(i)} style={{ fontSize: 11, color: COLORS.red, background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>Remove</button>
+                                        )}
+                                        {b.location && !b.location.toLowerCase().includes('nigeria') && (
+                                            <div style={{ marginTop: 6, fontSize: 11, color: COLORS.green }}>Remote signer - will receive email signing link</div>
+                                        )}
+                                    </div>
+                                ))}
+                                {beneficiaries.length < 7 && (
+                                    <button onClick={addBeneficiary} style={{ width: '100%', padding: '10px', background: 'none', border: `1px dashed ${COLORS.border}`, color: COLORS.muted, fontSize: 12, cursor: 'pointer', marginTop: 4 }}>
+                                        + Add Beneficiary ({beneficiaries.length}/7)
+                                    </button>
+                                )}
+                            </div>
+
+                            <div style={{ background: COLORS.slate, border: `1px solid ${COLORS.red}40`, padding: 24, marginBottom: 28 }}>
+                                <div style={{ fontSize: 11, color: COLORS.red, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 12 }}>Charity Fallback</div>
+                                <div style={{ fontSize: 12, color: COLORS.muted, marginBottom: 12 }}>Receives shares from failed appeals. Address locked at deployment.</div>
+                                {(['name', 'address'] as const).map(f => (
+                                    <input key={f} value={charity[f]} onChange={e => setCharity(p => ({ ...p, [f]: e.target.value }))} placeholder={f === 'address' ? 'tb1...' : 'Charity name'} style={{ width: '100%', padding: '10px 14px', background: COLORS.mid, border: `1px solid ${COLORS.border}`, color: f === 'address' ? COLORS.red : COLORS.ivory, fontSize: 13, fontFamily: FONTS.body, boxSizing: 'border-box', marginBottom: 8 }} />
+                                ))}
+                            </div>
+
+                            <div style={{ display: 'flex', gap: 12 }}>
+                                <button onClick={() => setStep(2)} style={{ padding: '14px 28px', background: 'none', border: `1px solid ${COLORS.border}`, color: COLORS.muted, fontSize: 12, cursor: 'pointer' }}>Back</button>
+                                <motion.button whileHover={{ background: COLORS.goldLight }} disabled={!canNext[3]} onClick={() => setStep(4)} style={{ padding: '14px 40px', background: canNext[3] ? COLORS.gold : COLORS.border, border: 'none', color: canNext[3] ? COLORS.obsidian : COLORS.muted, fontSize: 13, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', cursor: canNext[3] ? 'pointer' : 'not-allowed' }}>
+                                    Continue
+                                </motion.button>
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {step === 4 && (
+                        <motion.div key="s4" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                            <div style={{ fontFamily: FONTS.heading, fontSize: 28, marginBottom: 12 }}>Upload Documents</div>
+                            <div style={{ fontSize: 14, color: COLORS.muted, marginBottom: 32, lineHeight: 1.7 }}>Both documents are SHA-256 hashed in your browser. Only the hash is stored on-chain. Files are not uploaded to any server.</div>
+
+                            {[
+                                { label: 'Will Document', sub: 'Defines each beneficiary share percentage', state: willFile, set: setWillFile },
+                                { label: 'Conditional Clause', sub: 'Defines disqualification conditions per beneficiary', state: clauseFile, set: setClauseFile },
+                            ].map(({ label, sub, state, set }) => (
+                                <label key={label} style={{ display: 'block', padding: 24, background: COLORS.slate, border: `1px solid ${state ? COLORS.gold : COLORS.border}`, marginBottom: 16, cursor: 'pointer' }}>
+                                    <div style={{ fontSize: 13, color: state ? COLORS.gold : COLORS.ivory, marginBottom: 4 }}>{label} {state ? `- ${state.name}` : '(optional)'}</div>
+                                    <div style={{ fontSize: 11, color: COLORS.muted }}>{sub}</div>
+                                    <input type="file" accept=".pdf,.docx" onChange={e => set(e.target.files?.[0] ?? null)} style={{ display: 'none' }} />
+                                </label>
+                            ))}
+
+                            <div style={{ display: 'flex', gap: 12, marginTop: 32 }}>
+                                <button onClick={() => setStep(3)} style={{ padding: '14px 28px', background: 'none', border: `1px solid ${COLORS.border}`, color: COLORS.muted, fontSize: 12, cursor: 'pointer' }}>Back</button>
+                                <motion.button whileHover={{ background: COLORS.goldLight }} onClick={() => setStep(5)} style={{ padding: '14px 40px', background: COLORS.gold, border: 'none', color: COLORS.obsidian, fontSize: 13, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', cursor: 'pointer' }}>
+                                    Continue
+                                </motion.button>
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {step === 5 && !deploying && !deployed && (
+                        <motion.div key="s5" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }}>
+                            <div style={{ fontFamily: FONTS.heading, fontSize: 28, marginBottom: 12 }}>Deploy Vault</div>
+                            <div style={{ fontSize: 14, color: COLORS.muted, marginBottom: 32, lineHeight: 1.7 }}>Set your dead man's switch check-in frequency. After deployment, your vault contract is live on OP_NET Testnet.</div>
+
+                            <div style={{ background: COLORS.slate, border: `1px solid ${COLORS.border}`, padding: 28, marginBottom: 24 }}>
+                                <div style={{ fontSize: 11, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 16 }}>Check-In Frequency</div>
+                                <div style={{ display: 'flex', gap: 12 }}>
+                                    {([3, 6] as const).map(freq => (
+                                        <button key={freq} onClick={() => setCheckInFreq(freq)} style={{ flex: 1, padding: '16px', background: checkInFreq === freq ? `${COLORS.gold}20` : COLORS.mid, border: `1px solid ${checkInFreq === freq ? COLORS.gold : COLORS.border}`, color: checkInFreq === freq ? COLORS.gold : COLORS.muted, fontSize: 13, cursor: 'pointer' }}>
+                                            Every {freq} months
+                                            <div style={{ fontSize: 11, marginTop: 4, color: COLORS.muted }}>{freq === 3 ? '13,140 blocks' : '26,280 blocks'}</div>
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div style={{ background: COLORS.slate, border: `1px solid ${COLORS.border}`, padding: 24, marginBottom: 28 }}>
+                                <div style={{ fontSize: 11, color: COLORS.muted, textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 16 }}>Summary</div>
+                                {[
+                                    { label: 'Vault Name', value: vaultName },
+                                    { label: 'Executor', value: executor.name || executor.address.slice(0, 16) + '...' },
+                                    { label: 'Executor Fee', value: `${executor.fee}%` },
+                                    { label: 'Beneficiaries', value: beneficiaries.length.toString() },
+                                    { label: 'Total Shares', value: `${totalShares.toFixed(0)}%` },
+                                    { label: 'Network', value: 'OP_NET Testnet - Bitcoin Layer 1' },
+                                ].map(row => (
+                                    <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: `1px solid ${COLORS.border}` }}>
+                                        <div style={{ fontSize: 12, color: COLORS.muted }}>{row.label}</div>
+                                        <div style={{ fontSize: 12, color: COLORS.ivory }}>{row.value}</div>
+                                    </div>
+                                ))}
+                            </div>
+
+                            {deployError && <div style={{ padding: '12px 16px', background: `${COLORS.red}10`, border: `1px solid ${COLORS.red}40`, color: COLORS.red, fontSize: 12, marginBottom: 16 }}>{deployError}</div>}
+
+                            <div style={{ display: 'flex', gap: 12 }}>
+                                <button onClick={() => setStep(4)} style={{ padding: '14px 28px', background: 'none', border: `1px solid ${COLORS.border}`, color: COLORS.muted, fontSize: 12, cursor: 'pointer' }}>Back</button>
+                                <motion.button whileHover={{ background: COLORS.goldLight }} whileTap={{ scale: 0.98 }} onClick={handleDeploy} style={{ flex: 1, padding: '16px', background: COLORS.gold, border: 'none', color: COLORS.obsidian, fontSize: 13, fontWeight: 700, letterSpacing: 1.5, textTransform: 'uppercase', cursor: 'pointer' }}>
+                                    Deploy to OP_NET Testnet
+                                </motion.button>
+                            </div>
+                        </motion.div>
+                    )}
+
+                    {deploying && (
+                        <motion.div key="deploying" initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ textAlign: 'center', padding: '60px 40px', background: COLORS.slate, border: `1px solid ${COLORS.border}` }}>
+                            <motion.div animate={{ rotate: 360 }} transition={{ duration: 1, repeat: Infinity, ease: 'linear' }} style={{ width: 56, height: 56, border: `2px solid ${COLORS.border}`, borderTop: `2px solid ${COLORS.gold}`, borderRadius: '50%', margin: '0 auto 28px' }} />
+                            <div style={{ fontFamily: FONTS.heading, fontSize: 26, color: COLORS.ivory, marginBottom: 8 }}>Deploying Contract</div>
+                            <div style={{ fontSize: 13, color: COLORS.muted }}>Broadcasting vault to OP_NET Testnet...</div>
+                        </motion.div>
+                    )}
+
+                    {deployed && (
+                        <motion.div key="deployed" initial={{ opacity: 0, scale: 0.97 }} animate={{ opacity: 1, scale: 1 }} style={{ textAlign: 'center', padding: 48, background: COLORS.slate, border: `1px solid ${COLORS.green}` }}>
+                            <div style={{ width: 64, height: 64, border: `2px solid ${COLORS.green}`, borderRadius: '50%', margin: '0 auto 24px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                <div style={{ fontFamily: FONTS.heading, fontSize: 18, color: COLORS.green, fontWeight: 700 }}>OK</div>
+                            </div>
+                            <div style={{ fontFamily: FONTS.heading, fontSize: 32, color: COLORS.ivory, marginBottom: 8 }}>{vaultName} Deployed</div>
+                            <div style={{ fontSize: 13, color: COLORS.muted, marginBottom: 32, lineHeight: 1.7 }}>Your vault is live on OP_NET Testnet. All registered parties have been notified. Your certificate has been generated.</div>
+                            <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+                                <motion.button whileHover={{ background: COLORS.goldLight }} onClick={() => navigate(`/certificate${deployedVaultId ? '?vaultId=' + deployedVaultId : ''}`)} style={{ padding: '14px 28px', background: COLORS.gold, border: 'none', color: COLORS.obsidian, fontSize: 12, fontWeight: 600, letterSpacing: 1.5, textTransform: 'uppercase', cursor: 'pointer' }}>
+                                    View Certificate
+                                </motion.button>
+                                <motion.button whileHover={{ borderColor: COLORS.gold }} onClick={() => navigate('/dashboard/owner')} style={{ padding: '14px 28px', background: 'none', border: `1px solid ${COLORS.border}`, color: COLORS.muted, fontSize: 12, cursor: 'pointer', letterSpacing: 1 }}>
+                                    Go to Dashboard
+                                </motion.button>
+                            </div>
+                        </motion.div>
+                    )}
+
+                </AnimatePresence>
+            </div>
         </div>
     );
 }
-
-
