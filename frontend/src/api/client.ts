@@ -1,3 +1,5 @@
+export class APIError extends Error { constructor(status, message) { super(message); this.name = 'APIError'; this.status = status; } }
+
 const BASE_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001';
 
 export function getAuthHeaders(walletAddress, signature) {
@@ -6,7 +8,7 @@ export function getAuthHeaders(walletAddress, signature) {
         'Content-Type': 'application/json',
         'x-wallet-address': walletAddress,
         'x-wallet-signature': signature,
-        'x-wallet-message': `VaultLegacy auth — timestamp: ${timestamp}`,
+        'x-wallet-message': `VaultLegacy auth Ã¢â‚¬â€ timestamp: ${timestamp}`,
     };
 }
 
@@ -43,3 +45,6 @@ export async function reviewAppeal(vaultId, benId, decision, blockNumber, txHash
 export async function getSigningSession(token) { return apiFetch(`/api/sign/${token}`); }
 export async function submitSignedPsbt(token, signedPsbtHex) { return apiFetch(`/api/sign/${token}`, { method: 'POST', body: JSON.stringify({ signedPsbtHex }) }); }
 export async function registerContact(vaultId, address, role, email, phone, headers) { return apiFetch(`/api/vaults/${vaultId}/contacts`, { method: 'POST', headers, body: JSON.stringify({ address, role, email, phone }) }); }
+
+export async function createVault(payload, headers) { return apiFetch('/api/vaults', { method: 'POST', headers, body: JSON.stringify(payload) }); }
+export async function getAppealStatus(vaultId, benId, headers) { return apiFetch('/api/vaults/' + vaultId + '/appeals/' + benId, { headers }); }
